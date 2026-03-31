@@ -2841,4 +2841,11 @@ function generateSidebar(allChars, filesByChar) {
     sidebar.appendChild(btn);
   });
 }
+const oldBase = "https://downloads.computinginthecore.org/bramble_0.1.31/";
+const newBase = "https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/"; 
+
+if (window.location.href.startsWith(oldBase)) {
+  const path = window.location.href.slice(oldBase.length); 
+  window.location.replace(newBase + path);
+}
 generateAllSections();
