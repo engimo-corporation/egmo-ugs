@@ -4,20 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ENGIMO | Secure Communication Relay</title>
-    <!-- Firebase SDKs (Classic for 2011 feel) -->
+    
+    <!-- Clerk Authentication SDK -->
+    <script async crossorigin="anonymous" src="https://clerk.engimo.org/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"></script>
+    
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    
+    <!-- FontAwesome for Corporate Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
     <style>
         :root {
             --engimo-blue: #1e5799;
             --engimo-orange: #ff9900;
             --bg-dark: #0b1d31;
+            --panel-bg: #10263d;
         }
         body, html { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
             background: var(--bg-dark); font-family: "Segoe UI", Tahoma, sans-serif;
-            color: white; display: flex; flex-direction: column;
+            color: white; display: flex; flex-direction: column; overflow: hidden;
         }
         
         /* Header Area */
@@ -29,10 +38,78 @@
             justify-content: space-between;
             align-items: center;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 10;
         }
         .relay-status { font-family: monospace; font-size: 11px; color: #00ff00; }
 
-        /* Chat Window */
+        /* Main App Layout */
+        #app-container {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 55px);
+        }
+
+        /* Corporate Directory Sidebar */
+        #sidebar {
+            width: 250px;
+            background: var(--panel-bg);
+            border-right: 1px solid var(--engimo-blue);
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 15px;
+            background: rgba(0,0,0,0.2);
+            font-size: 12px;
+            font-weight: bold;
+            color: #7db9e8;
+            border-bottom: 1px solid var(--engimo-blue);
+            text-transform: uppercase;
+        }
+        #contact-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .contact-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(30, 87, 153, 0.5);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.2s;
+        }
+        .contact-item:hover, .contact-item.active {
+            background: rgba(30, 87, 153, 0.4);
+            border-left: 3px solid var(--engimo-orange);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            background: #00ff00;
+            border-radius: 50%;
+            box-shadow: 0 0 5px #00ff00;
+        }
+
+        /* Chat Area */
+        #chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        #chat-header {
+            padding: 15px 20px;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--engimo-blue);
+            font-weight: bold;
+            font-size: 14px;
+            color: #ccc;
+        }
+
         #chat-window {
             flex: 1;
             overflow-y: auto;
@@ -40,12 +117,16 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
-            background-size: 20px 20px;
+        }
+        .no-chat-selected {
+            margin: auto;
+            text-align: center;
+            color: #666;
+            font-family: monospace;
         }
 
         .message {
-            max-width: 80%;
+            max-width: 70%;
             padding: 10px 15px;
             border-radius: 4px;
             font-size: 14px;
@@ -62,14 +143,7 @@
             align-self: flex-end;
             border-right: 3px solid white;
         }
-        .sender {
-            font-size: 10px;
-            font-weight: bold;
-            margin-bottom: 4px;
-            display: block;
-            color: #7db9e8;
-        }
-        .time { font-size: 9px; opacity: 0.5; margin-left: 8px; }
+        .time { font-size: 9px; opacity: 0.5; margin-left: 8px; float: right; margin-top: 3px;}
 
         /* Input Area */
         .input-area {
@@ -78,6 +152,12 @@
             display: flex;
             gap: 10px;
             border-top: 1px solid #1e5799;
+            opacity: 0; /* Hidden until chat is selected */
+            pointer-events: none;
+        }
+        .input-area.active {
+            opacity: 1;
+            pointer-events: all;
         }
         input[type="text"] {
             flex: 1;
@@ -116,77 +196,181 @@
         <div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">
             ENGIMO<span style="color:#ff9900;">.</span> COMMS
         </div>
-        <div style="font-family: monospace; font-size: 12px;" id="load-status">Handshaking with encrypted node...</div>
+        <div style="font-family: monospace; font-size: 12px;" id="load-status">Authenticating Identity via Clerk...</div>
     </div>
 
     <header>
         <div>
             <strong>SECURE RELAY</strong>
-            <div class="relay-status">● ENCRYPTION ACTIVE</div>
+            <div class="relay-status">● P2P ENCRYPTION ACTIVE</div>
         </div>
-        <div id="user-display" style="font-size: 12px; opacity: 0.8;">Node: Unknown</div>
+        <div id="my-user-display" style="font-size: 12px; opacity: 0.8; font-family: monospace;">Authenticating...</div>
     </header>
 
-    <div id="chat-window">
-        <!-- Messages appear here -->
-    </div>
+    <div id="app-container">
+        <div id="sidebar">
+            <div class="sidebar-header"><i class="fa-solid fa-address-book"></i> Corporate Directory</div>
+            <ul id="contact-list">
+                <!-- Populated dynamically -->
+            </ul>
+        </div>
 
-    <div class="input-area">
-        <input type="text" id="msg-input" placeholder="Enter secure message..." autocomplete="off">
-        <button id="send-btn">SEND</button>
+        <div id="chat-area">
+            <div id="chat-header">Awaiting Connection Selection...</div>
+            <div id="chat-window">
+                <div class="no-chat-selected">
+                    <i class="fa-solid fa-user-shield fa-3x" style="color:#1e5799; margin-bottom: 15px;"></i><br>
+                    Select an ENGIMO ID from the directory to establish a secure tunnel.
+                </div>
+            </div>
+
+            <div class="input-area" id="input-area">
+                <input type="text" id="msg-input" placeholder="Enter secure message..." autocomplete="off">
+                <button id="send-btn">TRANSMIT</button>
+            </div>
+        </div>
     </div>
 
     <script>
-        // CONFIGURATION: Set this up in your Firebase Console
+        // ==========================================
+        // 1. CONFIGURATION (Add your Firebase config here)
+        // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyDnSrJVCLKassLBKUblBe7tQ58vHNKpc9I", // Add your API key
+            apiKey: "", 
             authDomain: "engimo-comms.firebaseapp.com",
             projectId: "engimo-comms",
             storageBucket: "engimo-comms.appspot.com",
-            messagingSenderId: "116755748698",
-            appId: "1:116755748698:web:eafcc4b603ce7af9f54563"
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
         };
 
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
 
-        // 1. Get User Data from parent GWA (since we're in a blob/iframe)
-        // Note: For high security, we'd use postMessage to get the Clerk Token
-        let currentUser = { name: "Guest User", id: "0000" };
-        
-        // Attempt to capture name from URL or parent
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('user')) currentUser.name = urlParams.get('user');
+        // Core State
+        let myClerkId = null;
+        let myName = null;
+        let activeChatUserId = null;
+        let messagesUnsubscribe = null;
 
-        document.getElementById('user-display').innerText = "Node: " + currentUser.name;
+        // ==========================================
+        // 2. AUTHENTICATION (Clerk + Firebase)
+        // ==========================================
+        window.onload = async () => {
+            try {
+                // Wait for Clerk SDK to load
+                await window.Clerk.load();
+                
+                if (!window.Clerk.user) {
+                    document.getElementById('load-status').innerText = "FATAL ERROR: No Active ENGIMO ID Found.";
+                    document.getElementById('load-status').style.color = "red";
+                    return;
+                }
 
-        // 2. Auth - In Plan B, we'll use Anonymous Auth for simplicity 
-        // or tie it into your existing Clerk tokens via Firebase Custom Auth
-        auth.signInAnonymously().catch(error => {
-            console.error("Relay Connection Failed", error);
-            document.getElementById('load-status').innerText = "CONNECTION FAILED: REFUSED BY PEER";
-        });
+                myClerkId = window.Clerk.user.id;
+                myName = window.Clerk.user.firstName || window.Clerk.user.username || "Authorized Client";
+                document.getElementById('my-user-display').innerText = `ID: ${myName} (${myClerkId.substring(0,8)}...)`;
 
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                setTimeout(() => {
-                    document.getElementById('loading-screen').style.display = 'none';
-                    subscribeToMessages();
-                }, 1000);
+                document.getElementById('load-status').innerText = "Handshaking with Firebase Relay...";
+                
+                // Sign into Firebase silently
+                await auth.signInAnonymously();
+
+                // Register myself in the Corporate Directory
+                await db.collection("directory").doc(myClerkId).set({
+                    id: myClerkId,
+                    name: myName,
+                    lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                // Boot UI
+                document.getElementById('loading-screen').style.display = 'none';
+                loadDirectory();
+
+            } catch (error) {
+                console.error("Initialization Failed:", error);
+                document.getElementById('load-status').innerText = "SYSTEM FAILURE: Check Console Logs.";
             }
-        });
+        };
 
-        // 3. Messaging Logic
-        function subscribeToMessages() {
-            db.collection("messages").orderBy("timestamp", "asc").limitToLast(50)
+        // ==========================================
+        // 3. CORPORATE DIRECTORY LOGIC
+        // ==========================================
+        function loadDirectory() {
+            db.collection("directory").orderBy("name").onSnapshot(snapshot => {
+                const list = document.getElementById('contact-list');
+                list.innerHTML = ""; // Clear existing
+
+                let contactFound = false;
+
+                snapshot.forEach(doc => {
+                    const user = doc.data();
+                    
+                    // Don't list ourselves
+                    if (user.id !== myClerkId) {
+                        contactFound = true;
+                        const li = document.createElement('li');
+                        li.className = `contact-item ${activeChatUserId === user.id ? 'active' : ''}`;
+                        li.innerHTML = `
+                            <div class="status-dot"></div>
+                            <div>
+                                <div style="font-size: 13px; font-weight: bold; color: #fff;">${user.name}</div>
+                                <div style="font-size: 9px; color: #888; font-family: monospace;">UID: ${user.id.substring(0,8)}</div>
+                            </div>
+                        `;
+                        li.onclick = () => openChat(user.id, user.name);
+                        list.appendChild(li);
+                    }
+                });
+
+                if (!contactFound) {
+                    list.innerHTML = '<li style="padding: 15px; font-size: 11px; color: #666; text-align: center;">No other active nodes found.</li>';
+                }
+            });
+        }
+
+        // ==========================================
+        // 4. PRIVATE MESSAGING LOGIC
+        // ==========================================
+        
+        // Helper to generate a unique room ID between two users, regardless of who clicks who
+        function generateRoomId(id1, id2) {
+            return id1 < id2 ? `${id1}_${id2}` : `${id2}_${id1}`;
+        }
+
+        function openChat(targetId, targetName) {
+            activeChatUserId = targetId;
+            
+            // Update UI
+            document.querySelectorAll('.contact-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('chat-header').innerHTML = `
+                <i class="fa-solid fa-lock" style="color: #00ff00; margin-right: 8px;"></i>
+                Encrypted Tunnel: <span style="color: white;">${targetName}</span>
+            `;
+            document.getElementById('input-area').classList.add('active');
+            
+            // Re-render directory highlights
+            loadDirectory(); 
+
+            // Clear chat window
+            const chatWindow = document.getElementById('chat-window');
+            chatWindow.innerHTML = "";
+
+            // Disconnect old listener if we switched chats
+            if (messagesUnsubscribe) messagesUnsubscribe();
+
+            const roomId = generateRoomId(myClerkId, targetId);
+
+            // Listen for messages in this specific private room
+            messagesUnsubscribe = db.collection("messages")
+                .where("roomId", "==", roomId)
+                .orderBy("timestamp", "asc")
+                .limitToLast(100)
                 .onSnapshot(snapshot => {
-                    const chatWindow = document.getElementById('chat-window');
                     snapshot.docChanges().forEach(change => {
                         if (change.type === "added") {
-                            const data = change.doc.data();
-                            renderMessage(data);
+                            renderMessage(change.doc.data());
                         }
                     });
                     chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -195,7 +379,7 @@
 
         function renderMessage(data) {
             const chatWindow = document.getElementById('chat-window');
-            const isMe = data.senderId === auth.currentUser.uid;
+            const isMe = data.senderId === myClerkId;
             
             const msgDiv = document.createElement('div');
             msgDiv.className = `message ${isMe ? 'msg-sent' : 'msg-received'}`;
@@ -203,9 +387,8 @@
             const time = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "now";
             
             msgDiv.innerHTML = `
-                <span class="sender">${data.senderName}</span>
                 ${data.text}
-                <span class="time">${time}</span>
+                <div class="time">${time}</div>
             `;
             
             chatWindow.appendChild(msgDiv);
@@ -214,18 +397,21 @@
         function sendMessage() {
             const input = document.getElementById('msg-input');
             const text = input.value.trim();
-            if (!text) return;
+            if (!text || !activeChatUserId) return;
+
+            const roomId = generateRoomId(myClerkId, activeChatUserId);
 
             db.collection("messages").add({
+                roomId: roomId,
                 text: text,
-                senderName: currentUser.name,
-                senderId: auth.currentUser.uid,
+                senderId: myClerkId,
                 timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
 
             input.value = "";
         }
 
+        // Event Listeners
         document.getElementById('send-btn').onclick = sendMessage;
         document.getElementById('msg-input').onkeypress = (e) => {
             if (e.key === 'Enter') sendMessage();
