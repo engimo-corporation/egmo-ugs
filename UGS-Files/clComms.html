@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENGIMO | Secure Communication Relay</title>
+    <!-- Firebase SDKs (Classic for 2011 feel) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <style>
+        :root {
+            --engimo-blue: #1e5799;
+            --engimo-orange: #ff9900;
+            --bg-dark: #0b1d31;
+        }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: var(--bg-dark); font-family: "Segoe UI", Tahoma, sans-serif;
+            color: white; display: flex; flex-direction: column;
+        }
+        
+        /* Header Area */
+        header {
+            background: linear-gradient(to right, #10263d, #1e5799);
+            padding: 10px 20px;
+            border-bottom: 2px solid var(--engimo-orange);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .relay-status { font-family: monospace; font-size: 11px; color: #00ff00; }
+
+        /* Chat Window */
+        #chat-window {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            position: relative;
+            animation: slideIn 0.2s ease-out;
+        }
+        .msg-received {
+            background: #1a3a5a;
+            align-self: flex-start;
+            border-left: 3px solid var(--engimo-orange);
+        }
+        .msg-sent {
+            background: var(--engimo-blue);
+            align-self: flex-end;
+            border-right: 3px solid white;
+        }
+        .sender {
+            font-size: 10px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            display: block;
+            color: #7db9e8;
+        }
+        .time { font-size: 9px; opacity: 0.5; margin-left: 8px; }
+
+        /* Input Area */
+        .input-area {
+            background: #081625;
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid #1e5799;
+        }
+        input[type="text"] {
+            flex: 1;
+            background: #10263d;
+            border: 1px solid #1e5799;
+            color: white;
+            padding: 10px;
+            border-radius: 3px;
+            outline: none;
+        }
+        input[type="text"]:focus { border-color: var(--engimo-orange); }
+        button {
+            background: var(--engimo-orange);
+            color: white;
+            border: none;
+            padding: 0 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #e68a00; }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Loading Overlay */
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg-dark); z-index: 100;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading-screen">
+        <div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">
+            ENGIMO<span style="color:#ff9900;">.</span> COMMS
+        </div>
+        <div style="font-family: monospace; font-size: 12px;" id="load-status">Handshaking with encrypted node...</div>
+    </div>
+
+    <header>
+        <div>
+            <strong>SECURE RELAY</strong>
+            <div class="relay-status">● ENCRYPTION ACTIVE</div>
+        </div>
+        <div id="user-display" style="font-size: 12px; opacity: 0.8;">Node: Unknown</div>
+    </header>
+
+    <div id="chat-window">
+        <!-- Messages appear here -->
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="msg-input" placeholder="Enter secure message..." autocomplete="off">
+        <button id="send-btn">SEND</button>
+    </div>
+
+    <script>
+        // CONFIGURATION: Set this up in your Firebase Console
+        const firebaseConfig = {
+            apiKey: "AIzaSyDnSrJVCLKassLBKUblBe7tQ58vHNKpc9I", // Add your API key
+            authDomain: "engimo-comms.firebaseapp.com",
+            projectId: "engimo-comms",
+            storageBucket: "engimo-comms.appspot.com",
+            messagingSenderId: "116755748698",
+            appId: "1:116755748698:web:eafcc4b603ce7af9f54563"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // 1. Get User Data from parent GWA (since we're in a blob/iframe)
+        // Note: For high security, we'd use postMessage to get the Clerk Token
+        let currentUser = { name: "Guest User", id: "0000" };
+        
+        // Attempt to capture name from URL or parent
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('user')) currentUser.name = urlParams.get('user');
+
+        document.getElementById('user-display').innerText = "Node: " + currentUser.name;
+
+        // 2. Auth - In Plan B, we'll use Anonymous Auth for simplicity 
+        // or tie it into your existing Clerk tokens via Firebase Custom Auth
+        auth.signInAnonymously().catch(error => {
+            console.error("Relay Connection Failed", error);
+            document.getElementById('load-status').innerText = "CONNECTION FAILED: REFUSED BY PEER";
+        });
+
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                setTimeout(() => {
+                    document.getElementById('loading-screen').style.display = 'none';
+                    subscribeToMessages();
+                }, 1000);
+            }
+        });
+
+        // 3. Messaging Logic
+        function subscribeToMessages() {
+            db.collection("messages").orderBy("timestamp", "asc").limitToLast(50)
+                .onSnapshot(snapshot => {
+                    const chatWindow = document.getElementById('chat-window');
+                    snapshot.docChanges().forEach(change => {
+                        if (change.type === "added") {
+                            const data = change.doc.data();
+                            renderMessage(data);
+                        }
+                    });
+                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                });
+        }
+
+        function renderMessage(data) {
+            const chatWindow = document.getElementById('chat-window');
+            const isMe = data.senderId === auth.currentUser.uid;
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${isMe ? 'msg-sent' : 'msg-received'}`;
+            
+            const time = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "now";
+            
+            msgDiv.innerHTML = `
+                <span class="sender">${data.senderName}</span>
+                ${data.text}
+                <span class="time">${time}</span>
+            `;
+            
+            chatWindow.appendChild(msgDiv);
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            db.collection("messages").add({
+                text: text,
+                senderName: currentUser.name,
+                senderId: auth.currentUser.uid,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            input.value = "";
+        }
+
+        document.getElementById('send-btn').onclick = sendMessage;
+        document.getElementById('msg-input').onkeypress = (e) => {
+            if (e.key === 'Enter') sendMessage();
+        };
+
+    </script>
+</body>
+</html>
